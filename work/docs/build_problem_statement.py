@@ -26,12 +26,20 @@ night_mean = sum(r["tnight"] for r in hot_months) / len(hot_months)
 above26 = [100 * (1 - r["frac_nights_min_below_26"]) for r in hot_months]
 winter_night = sum(r["tnight"] for r in rows if r["month"] in (12, 1, 2)) / 3
 
-base = None
-vfile = HERE.parent / "results" / "verification.csv"
-if vfile.exists():
-    for r in csv.DictReader(open(vfile)):
-        if r["label"] == "base_CondFD":
-            base = {k: float(v) for k, v in r.items() if k not in ("label", "case_id")}
+base, bench = None, {}
+bfile = HERE.parent / "results" / "parametric_bench.csv"
+if bfile.exists():
+    for r in csv.DictReader(open(bfile)):
+        if r["mode"] != "FR" or r["night_vent"] != "False":
+            continue
+        name = ("PCM" if r["roof"] == "top" else "") + (f"XPS{r['roof_ins_mm']}" if r["roof_ins_mm"] != "0" else "")
+        name += "cool" if r["cool_roof"] == "True" else ""
+        bench[name or "base"] = r
+    from model import Case
+    from run import run_case
+    bench["PCM"] = run_case(Case(roof="top", pcm="C18", thk=0.010))     # cached result of the model-v2 run
+    base = {k: float(bench["base"][k]) for k in ("Top_max", "BED_ceiling_T_max", "BED_roof_gain_kwh_m2", "disc80_pct",
+                                                  "disc90_pct", "hot80_h", "cold80_h")}
 
 story = []
 A = story.append
@@ -40,7 +48,7 @@ A(P("B.TECH PROJECT · PROBLEM STATEMENT", "kicker"))
 A(P("Optimising Phase Change Material (PCM) Retrofits on the Roof and Walls of PMAY Houses "
     "for Thermal Comfort and Energy Savings in a Warm-Humid Climate", "title"))
 A(P("Indian Institute of Technology Kharagpur · Study location: Kolkata / Kharagpur, West Bengal "
-    "(warm-humid climate) · Version 1.0, 22 October 2026", "meta"))
+    "(warm-humid climate) · Version 1.1, 22 October 2026", "meta"))
 
 # 1 ----------------------------------------------------------------------------------------
 A(P("1. Background and motivation", "h1"))
@@ -78,7 +86,14 @@ A(P("A PCM only helps if it completes a melt–freeze cycle every day: it must m
     "weeks and stop working exactly when it is needed. The opposite problem appears in winter "
     f"(December–February, mean night temperature {winter_night:.1f} °C), when a 28 °C PCM placed "
     "indoors may hardly melt at all. On the outer face of a sun-baked roof, temperatures far above 50 °C "
-    "change the picture again."))
+    "change the picture again. In Chennai, a similar climate, a single PCM layer in a roof did not complete its "
+    "melt–freeze cycle [15]."))
+A(P("The PCM also has to compete with simpler measures. Eco-Niwas Samhita 2018, India's residential energy code, "
+    "limits the roof U-value to 1.2 W/m²K in warm-humid climates [18]. The bare RCC roof of the PMAY house "
+    "(about 3.4 W/m²K) is almost three times worse. A thin PCM layer adds latent storage but little "
+    "insulation, so it must be judged against, and in combination with, cheap alternatives such as roof insulation "
+    "and reflective ‘cool-roof’ coatings. Work in warm-humid Indian offices found PCM alone inadequate and "
+    "an insulation–PCM combination best [16]."))
 A(P("The best PCM, its melting temperature, thickness and position therefore depend on the climate, the "
     "orientation of each surface and on how the house is operated (windows, ceiling fans, air conditioning). "
     "These choices must also be balanced against cost for a house built on a very small budget. Finally, comfort "
@@ -103,19 +118,22 @@ A(callout(
     "Problem statement"))
 A(Spacer(1, 6))
 A(P("Research gaps addressed", "h2"))
-A(P("The gaps below come from the papers reviewed so far; the ongoing literature review will refine them."))
+A(P("The gaps below are drawn from a review of 47 verified sources (work/literature/literature_review.md)."))
 story.extend(bullets([
     "<b>Climate and building type.</b> Experimental PCM-roof work in India has concentrated on hot, dry or composite "
-    "climates and on small test units [1]. Whole-house assessments of low-cost dwellings in the warm-humid east of "
-    "India are scarce.",
+    "climates and on small test units [1]. The only peer-reviewed simulation study of PMAY houses examined wall "
+    "assemblies against the energy code, not PCM [17]. Whole-house PCM assessments of low-cost dwellings in the "
+    "warm-humid east of India are scarce.",
     "<b>Thermal mass.</b> Much recent PCM-panel research targets lightweight, low-mass enclosures [3, 4]. Brick-and-RCC "
     "houses already store heat, so the added benefit of PCM there is less certain.",
     "<b>Night-time discharge.</b> Incomplete re-solidification in climates with warm nights, and how it should drive "
     "melting-temperature selection, is seldom quantified for Indian houses.",
     "<b>Comfort yardstick.</b> PCM benefits are usually reported as temperature reductions, PMV or energy savings. "
     "India's residential adaptive model (IMAC-R) [2] is seldom used to judge them.",
-    "<b>Joint optimisation.</b> Placement (roof vs. individual walls), operating mode and cost have not been "
-    "optimised together for affordable housing.",
+    "<b>Joint optimisation.</b> Placement (roof vs. individual walls), melting temperature, operating mode and cost "
+    "have not been optimised together for affordable housing. PCM has also seldom been benchmarked against cheap "
+    "conventional retrofits; envelope measures that look good on paper can even worsen comfort in free-running Indian "
+    "homes [19].",
 ]))
 
 # 4 ----------------------------------------------------------------------------------------
@@ -191,6 +209,8 @@ dv = [
     ["Layer thickness", "5, 10, 20 mm", "continuous 3–30 mm"],
     ["Night ventilation", "windows closed / open at night", "binary"],
     ["Orientation", "0° (base); 90°, 180°, 270° as sensitivity", "fixed"],
+    ["Benchmark measures", "cool-roof coating; XPS roof insulation 25 / 50 mm; combinations with PCM",
+     "XPS 0–50 mm, cool roof yes/no"],
 ]
 A(table(dv, [36, 92, TEXT_W / 2.835 - 128]))
 
@@ -228,20 +248,29 @@ kpi = [
                              "post-monsoon (Oct–Nov)"],
     ["PCM utilisation", "Share of days with a full melt–freeze cycle; mean daily swing of melt fraction"],
     ["Cost, payback, CO₂", "PCM at Rs 450/kg [1] + encapsulation and finish; payback = cost / (annual kWh "
-                                "saved × tariff); CO₂ = kWh saved × grid emission factor "
-                                "(≈ 0.72 kg/kWh)"],
+                                "saved × Rs 7.5/kWh, WBSEDCL domestic slab); CO₂ = kWh saved × "
+                                "0.675 kg/kWh (CEA CO₂ Baseline Database v22, FY 2025-26)"],
 ]
 A(table(kpi, [42, TEXT_W / 2.835 - 42]))
 
 # 7 ----------------------------------------------------------------------------------------
 if base:
-    A(P("7. First result: the un-retrofitted house", "h1"))
-    A(P(f"The baseline model (no PCM, free-running, windows open by day) already shows the problem. Indoor operative "
+    A(P("7. First results", "h1"))
+    A(P(f"The baseline model (no PCM, free-running, windows opened by day when the room feels warm) already shows "
+        f"the problem. Indoor operative "
         f"temperature peaks at {base['Top_max']:.1f} °C, the ceiling surface reaches "
         f"{base['BED_ceiling_T_max']:.0f} °C, and about {base['BED_roof_gain_kwh_m2']:.0f} kWh of heat per m² "
         f"of roof enters the bedroom each year. {base['disc80_pct']:.1f} % of occupied hours fall outside the IMAC-R "
         f"80 % band ({base['disc90_pct']:.0f} % outside the stricter 90 % band). Hot discomfort is concentrated in "
         "pre-monsoon afternoons, and cold discomfort in winter nights."))
+    if all(k in bench for k in ("PCM", "XPS25", "cool")):
+        pc, xp, co = bench["PCM"], bench["XPS25"], bench["cool"]
+        A(P(f"Early benchmark runs sharpen the question. A 10 mm n-octadecane layer on the roof brings discomfort "
+            f"down to {float(pc['disc80_pct']):.1f} % for about Rs {float(pc['pcm_cost_rs'])/1e5:.1f} lakh. A 25 mm XPS "
+            f"insulation layer reaches {float(xp['disc80_pct']):.1f} % for about Rs {float(xp['pcm_cost_rs'])/1e3:.0f},000. "
+            f"A cool-roof coating removes almost all overheating but makes winter colder "
+            f"({float(co['disc80_pct_winter']):.0f} % of winter hours too cold). The study will therefore establish "
+            "where, and in which combination, PCM adds value beyond conventional measures."))
 
 # 8 ----------------------------------------------------------------------------------------
 A(P(("8" if base else "7") + ". Expected outcomes and deliverables", "h1"))
@@ -300,6 +329,19 @@ refs = [
     "P.C. Tabares-Velasco, C. Christensen, M. Bianchi, Verification and validation of EnergyPlus phase change "
     "material model for opaque wall assemblies, <i>Building and Environment</i> 54 (2012) 186–196. "
     "doi:10.1016/j.buildenv.2012.02.019",
+    "K. Reddy, V. Mudgal, T. Mallick, Thermal performance analysis of multi-phase change material layer-integrated "
+    "building roofs for energy efficiency in built-environment, <i>Energies</i> 10 (2017) 1367. doi:10.3390/en10091367",
+    "P. Arumugam, V. Ramalingam, Thermal comfort enhancement of office buildings located under warm and humid climate "
+    "through phase change material and insulation coupled with natural ventilation, <i>Sustainable Energy "
+    "Technologies and Assessments</i> 63 (2024) 103657. doi:10.1016/j.seta.2024.103657",
+    "S. Asrani, R. Rawal, Y. Shukla, P. Graham, P. Bhanushali, A. Desai, Thermally comfortable affordable housing: a "
+    "study on residential building code in India, <i>The Journal of Engineering Research</i> 18(2) (2022) 124–136. "
+    "doi:10.53540/tjer.vol18iss2pp124-136",
+    "Bureau of Energy Efficiency, Eco-Niwas Samhita 2018 (Energy Conservation Building Code for Residential "
+    "Buildings), Part I: Building Envelope, New Delhi, 2018.",
+    "G. Vakil, P. Vaidya, P.S. Hollannavar, Y. Jain, A. Gupta, Rolling back insulation in naturally ventilated "
+    "buildings: a case to re-evaluate the residential energy code and its implementation practices in India, "
+    "<i>Proc. Building Simulation 2025</i>, IBPSA, 2025. doi:10.26868/25222708.2025.1619",
 ]
 for i, r in enumerate(refs, 1):
     A(P(f"[{i}]&nbsp;&nbsp;{r}", "ref"))
