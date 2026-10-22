@@ -77,6 +77,8 @@ MATERIALS = {
     "ASFlooring":      ("MediumSmooth",1.300, 2300, 840, 0.60),
     "GypsumBoard":     ("Smooth",      0.160,  800, 1090, 0.50),
     "WoodDoor":        ("MediumSmooth",0.150,  600, 1630, 0.70),
+    "CoolScreed":      ("MediumSmooth",0.720, 1648, 920, 0.25),   # screed with white reflective coating
+    "XPS":             ("MediumSmooth",0.034,   35, 1400, 0.60),
 }
 THICK = {"plaster_out": 0.015, "plaster_in": 0.012, "brick_ext": 0.250, "brick_part": 0.125,
          "rcc": 0.125, "screed": 0.025, "pcc": 0.075, "dpc": 0.025, "floor": 0.020,
@@ -105,12 +107,14 @@ class Case:
     tm: Optional[float] = None            # custom melting temperature (pcm == "custom")
     L: Optional[float] = None             # custom latent heat (pcm == "custom")
     latent: bool = True                   # False = control case: same layer, latent heat removed
+    cool_roof: bool = False               # benchmark: white reflective roof coating (solar absorptance 0.25)
+    roof_ins_mm: int = 0                  # benchmark: XPS insulation on top of slab under new screed [mm]
     night_vent: bool = False              # windows also open at night (22-06 h)
     mode: str = "FR"                      # "FR" free-running, "FAN" ceiling fans, "AC" air-conditioned
     orientation: float = 0.0              # building north axis [deg]
     ac_setpoint: float = 26.0
-    timestep: int = 20
-    space_c: float = 3.0                  # CondFD space discretisation constant
+    timestep: int = 20                    # EnergyPlus enforces >= 20 per hour with CondFD
+    space_c: float = 1.8                  # CondFD space discretisation constant (1.8: within 0.1 pp of converged)
     algo: str = "CondFD"                  # "CondFD" or "CTF" (CTF only valid without PCM; verification)
     hourly_pcm_nodes: bool = False        # extra CondFD node outputs (diagnostics)
 
@@ -142,6 +146,10 @@ class Case:
                f"_{int(round(d['thk']*1000))}mm_NV{int(self.night_vent)}_O{int(self.orientation)}")
         if self.pcm == "custom" and self.has_pcm():
             tag += f"_Tm{self.tm:.1f}"
+        if self.cool_roof:
+            tag += "_cool"
+        if self.roof_ins_mm:
+            tag += f"_XPS{self.roof_ins_mm}"
         h = hashlib.md5(json.dumps(d, sort_keys=True, default=str).encode()).hexdigest()[:6]
         return f"{tag}_{h}"
 
@@ -287,7 +295,10 @@ def build_idf(case: Case, epw_meta: dict) -> str:
         "Floor20": ("ASFlooring", THICK["floor"]),
         "Gypsum12": ("GypsumBoard", THICK["gypsum"]),
         "Door35": ("WoodDoor", THICK["door"]),
+        "CoolScreed25": ("CoolScreed", THICK["screed"]),
     }
+    if case.roof_ins_mm:
+        mats["XPS_ins"] = ("XPS", case.roof_ins_mm / 1000)
     for nm, (base, t) in mats.items():
         rough, k, rho, cp, sabs = MATERIALS[base]
         a(_obj("Material", nm, rough, t, k, rho, cp, 0.9, sabs, sabs))
@@ -301,12 +312,16 @@ def build_idf(case: Case, epw_meta: dict) -> str:
         "Window": ["SingleClear3mm"],
         "Door": ["Door35"],
     }
+    top = "CoolScreed25" if case.cool_roof else "Screed25"
+    cons["Roof_hab"] = [top, "RCC125", "PlasterIn12"]
+    if case.roof_ins_mm:
+        cons["Roof_hab"] = [top, "XPS_ins", "Screed25", "RCC125", "PlasterIn12"]
     if case.has_pcm():
         pcm_mat, pcm_txt = _pcm_objects(pcm, case.thk)
         a(pcm_txt)
         cons["ExtWall_PCM"] = ["PlasterOut15", "Brick250", "PlasterIn12", pcm_mat, "Gypsum12"]
-        cons["Roof_PCMtop"] = ["Screed25", pcm_mat, "Screed25", "RCC125", "PlasterIn12"]
-        cons["Roof_PCMbottom"] = ["Screed25", "RCC125", "PlasterIn12", pcm_mat, "Gypsum12"]
+        cons["Roof_PCMtop"] = [top, pcm_mat, "Screed25", "RCC125", "PlasterIn12"]
+        cons["Roof_PCMbottom"] = [top, "RCC125", "PlasterIn12", pcm_mat, "Gypsum12"]
     for nm, layers in cons.items():
         a(_obj("Construction", nm, *layers))
 
@@ -333,7 +348,7 @@ def build_idf(case: Case, epw_meta: dict) -> str:
             a(_obj("BuildingSurface:Detailed", name, "Wall", "Partition", z, "", "Surface", other, "NoSun",
                    "NoWind", "autocalculate", 4, *vtxt))
     for z, poly in ZONES.items():
-        roof_con = "Roof"
+        roof_con = "Roof_hab" if z in HABITABLE else "Roof"
         if z in HABITABLE and case.roof == "top":
             roof_con = "Roof_PCMtop"
         elif z in HABITABLE and case.roof == "bottom":

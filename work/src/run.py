@@ -34,6 +34,8 @@ TARIFF = 7.0                 # Rs/kWh, marginal domestic tariff (assumed)
 EMISSION_FACTOR = 0.72       # kgCO2/kWh, Indian grid (CEA, approximate)
 PCM_PRICE = 450.0            # Rs/kg (OM37 price reported by Abass & Muthulingam 2024)
 ENCAP_COST = {"roof_top": 700.0, "roof_bottom": 600.0, "wall": 600.0}   # Rs/m2 encapsulation + finish + labour (assumed)
+COOL_ROOF_COST = 150.0       # Rs/m2 white elastomeric reflective coating (assumed)
+XPS_COST_PER_MM = 14.0       # Rs/m2 per mm of XPS board (assumed); + 700 Rs/m2 screed & labour
 
 SEASONS = {"winter": (12, 1, 2), "summer": (3, 4, 5), "monsoon": (6, 7, 8, 9), "postmonsoon": (10, 11)}
 
@@ -50,16 +52,24 @@ def epw_data(weather):
 
 
 def pcm_cost(case: Case):
-    """Investment cost in Rs for the PCM retrofit."""
+    """Investment cost in Rs for the retrofit (PCM + benchmark measures) and PCM mass in kg."""
+    extra = 0.0
+    roof_area = pcm_areas(Case(roof="top"))["roof"]
+    if case.cool_roof:
+        extra += COOL_ROOF_COST * roof_area
+    if case.roof_ins_mm:
+        extra += (XPS_COST_PER_MM * case.roof_ins_mm + 700.0) * roof_area
     if not case.has_pcm():
-        return 0.0, 0.0
+        return extra, 0.0
     areas = pcm_areas(case)
     rho = case.pcm_props()["rho"]
     a_total = sum(areas.values())
     mass = a_total * case.thk * rho
     encap = (areas["roof"] * (ENCAP_COST["roof_top"] if case.roof == "top" else ENCAP_COST["roof_bottom"])
              + sum(areas[f] for f in "NESW") * ENCAP_COST["wall"])
-    return mass * PCM_PRICE + encap, mass
+    if case.roof_ins_mm and case.roof == "top":
+        encap -= 700.0 * areas["roof"]          # one new screed covers both layers
+    return mass * PCM_PRICE + encap + extra, mass
 
 
 # ---------------------------------------------------------------------------------------
