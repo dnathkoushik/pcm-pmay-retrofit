@@ -9,7 +9,8 @@ Stage B ("discrete")  - the design space of the parametric study; objectives are
                         full-factorial results, so the true Pareto front is known and we can measure
                         how well (and how quickly) NSGA-II / NSGA-III find it.
 Stage C ("extended")  - continuous melting point (20-38 C) and thickness (3-30 mm), plus cool-roof
-                        option; every evaluation runs EnergyPlus twice (FR + AC).
+                        coating and XPS roof insulation (0-50 mm) as competing / complementary measures;
+                        every evaluation runs EnergyPlus twice (FR + AC).
 
     python optimize.py discrete            # stage B, needs results/parametric_FR.csv and _AC.csv
     python optimize.py extended [--gens N --pop N]
@@ -144,28 +145,30 @@ def run_discrete(seeds=(1, 2, 3, 4, 5), pop=40, gens=40):
 
 
 # --------------------------------------------------------------------------------------- stage C
-EXT_XL = [0, 0, 0, 0, 0, 20.0, 3.0, 0, 0]
-EXT_XU = [2, 1, 1, 1, 1, 38.0, 30.0, 1, 1]
+EXT_XL = [0, 0, 0, 0, 0, 20.0, 3.0, 0, 0, 0.0]
+EXT_XU = [2, 1, 1, 1, 1, 38.0, 30.0, 1, 1, 50.0]
 L_GENERIC = 230e3       # J/kg, typical of C17-C20 paraffins
 
 
 def decode_extended(x):
-    """x = [roof, N, E, S, W, Tm(C), thk(mm), nv, cool] -> (FR case, AC case)."""
+    """x = [roof, N, E, S, W, Tm(C), thk(mm), nv, cool, XPS(mm)] -> (FR case, AC case)."""
     roof = ROOFS[int(round(x[0]))]
     walls = frozenset(f for f, b in zip("NESW", x[1:5]) if round(b))
     tm = round(float(x[5]) * 2) / 2            # 0.5 C resolution
     thk = round(float(x[6])) / 1000            # 1 mm resolution
     nv, cool = bool(round(x[7])), bool(round(x[8]))
+    ins = int(5 * round(float(x[9]) / 5))     # XPS roof insulation, 5 mm steps (0 = none)
     if roof == "none" and not walls:
-        base = dict(night_vent=nv, cool_roof=cool)
+        base = dict(night_vent=nv, cool_roof=cool, roof_ins_mm=ins)
     else:
-        base = dict(roof=roof, walls=walls, pcm="custom", tm=tm, L=L_GENERIC, thk=thk, night_vent=nv, cool_roof=cool)
+        base = dict(roof=roof, walls=walls, pcm="custom", tm=tm, L=L_GENERIC, thk=thk, night_vent=nv, cool_roof=cool,
+                    roof_ins_mm=ins)
     return Case(mode="FR", **base), Case(mode="AC", **base)
 
 
 class ExtendedProblem(Problem):
     def __init__(self, workers):
-        super().__init__(n_var=9, n_obj=3, xl=EXT_XL, xu=EXT_XU)
+        super().__init__(n_var=10, n_obj=3, xl=EXT_XL, xu=EXT_XU)
         self.workers = workers
         self.log = []
 
@@ -183,7 +186,7 @@ class ExtendedProblem(Problem):
             F.append(f)
             self.log.append({"fr": fr.case_id(), "ac": ac.case_id(), "roof": fr.roof, "walls": "".join(sorted(fr.walls)),
                              "tm": fr.tm, "thk_mm": round(fr.thk * 1000), "night_vent": fr.night_vent,
-                             "cool_roof": fr.cool_roof, "disc80_pct": f[0], "epi_cool": f[1], "cost_krs": f[2],
+                             "cool_roof": fr.cool_roof, "xps_mm": fr.roof_ins_mm, "disc80_pct": f[0], "epi_cool": f[1], "cost_krs": f[2],
                              "hot80_h": rf["hot80_h"], "cold80_h": rf["cold80_h"]})
         out["F"] = np.array(F)
 
@@ -209,8 +212,9 @@ def run_extended(pop=24, gens=20, workers=11, algorithm="NSGA-III", seed=7):
     rows = []
     for x, f in zip(res.X, res.F):
         fr, _ = decode_extended(x)
-        rows.append({"roof": fr.roof, "walls": "".join(sorted(fr.walls)) or "-", "tm": fr.tm, "thk_mm": round(fr.thk * 1000),
-                     "night_vent": fr.night_vent, "cool_roof": fr.cool_roof,
+        rows.append({"roof": fr.roof, "walls": "".join(sorted(fr.walls)) or "-",
+                     "tm": fr.tm if fr.has_pcm() else None, "thk_mm": round(fr.thk * 1000) if fr.has_pcm() else 0,
+                     "night_vent": fr.night_vent, "cool_roof": fr.cool_roof, "xps_mm": fr.roof_ins_mm,
                      "disc80_pct": round(f[0], 3), "epi_cool": round(f[1], 3), "cost_krs": round(f[2], 2)})
     rows.sort(key=lambda r: r["cost_krs"])
     with open(OUT / f"extended_{algorithm}_front.csv", "w", newline="") as fh:

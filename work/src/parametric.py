@@ -52,6 +52,7 @@ def benchmarks():
                   Case(mode=mode, night_vent=nv, cool_roof=True),
                   Case(mode=mode, night_vent=nv, roof_ins_mm=25),
                   Case(mode=mode, night_vent=nv, roof_ins_mm=50),
+                  Case(mode=mode, night_vent=nv, roof_ins_mm=25, cool_roof=True),
                   Case(mode=mode, night_vent=nv, roof="top", pcm="C18", thk=0.010, cool_roof=True),
                   Case(mode=mode, night_vent=nv, roof="top", pcm="C19", thk=0.010, cool_roof=True),
                   Case(mode=mode, night_vent=nv, roof="top", pcm="C18", thk=0.010, roof_ins_mm=25),
@@ -87,7 +88,7 @@ if __name__ == "__main__":
     ap.add_argument("--workers", type=int, default=11)
     ap.add_argument("--collect-only", action="store_true")
     a = ap.parse_args()
-    order = ["bench", "fan", "FR", "AC"] if a.which == "all" else [a.which]
+    order = ["bench", "FR", "AC", "fan"] if a.which == "all" else [a.which]
     for name in order:
         cases = list(dict.fromkeys(SETS[name]()))
         if not a.collect_only:

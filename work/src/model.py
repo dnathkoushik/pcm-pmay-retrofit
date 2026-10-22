@@ -19,6 +19,7 @@ from typing import FrozenSet, Optional
 import hashlib
 import json
 
+MODEL_VERSION = 2  # bump whenever a change alters simulation results (invalidates cached runs)
 H = 2.75          # ceiling height (drawing note 5)
 WIN_W, WIN_H, WIN_SILL = 0.90, 0.90, 1.20   # W1 900x900, head at 2.1 m lintel level
 DOOR_W, DOOR_H = 0.90, 2.10                 # D1
@@ -134,6 +135,7 @@ class Case:
 
     def key(self):
         d = asdict(self)
+        d["model_version"] = MODEL_VERSION
         d["walls"] = "".join(sorted(self.walls))
         if not self.has_pcm():          # thickness/PCM irrelevant without PCM
             d.update(thk=0, pcm="-", tm=None, L=None, latent=True)
@@ -263,6 +265,18 @@ AC_SEASON_VENT = {
 }
 
 
+_MDAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+
+
+def _doy_to_md(d):
+    """0-based day of year -> (month, day) for a 365-day year."""
+    for m, n in enumerate(_MDAYS, 1):
+        if d < n:
+            return m, d + 1
+        d -= n
+    raise ValueError(d)
+
+
 def build_idf(case: Case, epw_meta: dict) -> str:
     pcm = case.pcm_props()
     out = []
@@ -322,6 +336,9 @@ def build_idf(case: Case, epw_meta: dict) -> str:
         cons["ExtWall_PCM"] = ["PlasterOut15", "Brick250", "PlasterIn12", pcm_mat, "Gypsum12"]
         cons["Roof_PCMtop"] = [top, pcm_mat, "Screed25", "RCC125", "PlasterIn12"]
         cons["Roof_PCMbottom"] = [top, "RCC125", "PlasterIn12", pcm_mat, "Gypsum12"]
+        if case.roof_ins_mm:   # PCM above the insulation on the roof top; insulation on the slab for a ceiling PCM
+            cons["Roof_PCMtop"] = [top, pcm_mat, "XPS_ins", "Screed25", "RCC125", "PlasterIn12"]
+            cons["Roof_PCMbottom"] = [top, "XPS_ins", "Screed25", "RCC125", "PlasterIn12", pcm_mat, "Gypsum12"]
     for nm, layers in cons.items():
         a(_obj("Construction", nm, *layers))
 
@@ -368,6 +385,13 @@ def build_idf(case: Case, epw_meta: dict) -> str:
 
     # ---- internal gains
     a(_schedules(case))
+    # Windows are opened only when the room is warmer than the IMAC-R 90 % lower comfort limit of the day
+    # (and warmer than outdoors), i.e. occupants do not ventilate a room that already feels cool.
+    vmin = ["VentMinT", "Temperature"]
+    for d, t30 in enumerate(epw_meta["t30"]):
+        mo, dy = _doy_to_md(d)
+        vmin += [f"Through: {mo}/{dy}", "For: AllDays", "Until: 24:00", f"{0.42 * t30 + 17.6 - 2.15:.2f}"]
+    a(_obj("Schedule:Compact", *vmin))
     people = {"BED": 2, "LIV": 4}
     for z in HABITABLE:
         a(_obj("People", f"{z}_People", z, f"Occ_{z}", "People", people[z], "", "", 0.3, "autocalculate",
@@ -389,7 +413,7 @@ def build_idf(case: Case, epw_meta: dict) -> str:
     for z in HABITABLE:
         a(_obj("ZoneVentilation:WindandStackOpenArea", f"{z}_NatVent", z, f"{0.5 * win_area[z]:.3f}",
                f"Vent_{z}", "autocalculate", eff_angle[z], 0.9, "autocalculate",
-               22, "", 100, "", 0, "", -100, "", 100, "", 40))
+               -100, "VentMinT", 100, "", 0, "", -100, "", 100, "", 40))
     a(_obj("ZoneVentilation:WindandStackOpenArea", "TOI_Jali", "TOI", f"{JALI_AREA:.3f}", "AlwaysOn",
            "autocalculate", 0, 0.75, "autocalculate", -100, "", 100, "", -100, "", -100, "", 100, "", 40))
 

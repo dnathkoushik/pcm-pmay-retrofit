@@ -154,8 +154,8 @@ spec = [
                  "the toilet block"],
     ["Occupancy", "Family of four; bedroom used 21–07 h, living room all day; lights 3 W/m², fridge, "
                   "TV, LPG cooking (1 kW, 2.5 h/day)"],
-    ["Ventilation", "Windows open 06–22 h when indoor is warmer than outdoor and above 22 °C; night "
-                    "ventilation is a study variable; infiltration 1 ACH"],
+    ["Ventilation", "Windows open 06–22 h when the room is warmer than outdoors and warmer than the day's IMAC-R "
+                    "90 % lower comfort limit; night ventilation is a study variable; infiltration 1 ACH"],
     ["Orientation", "Not given on the drawing: plan-up = North as the base case, with rotation as a sensitivity "
                     "check"],
 ]

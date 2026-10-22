@@ -47,6 +47,7 @@ def epw_data(weather):
         w = read_epw(WEATHER[weather])
         t30 = running_mean_30d(w["tdb"])
         w["t30_hourly"] = np.repeat(t30, 24)
+        w["meta"]["t30"] = t30.tolist()
         _epw_cache[weather] = w
     return _epw_cache[weather]
 

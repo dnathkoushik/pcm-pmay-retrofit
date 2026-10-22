@@ -27,7 +27,7 @@ The values below are used in `work/src/model.py` and `work/src/run.py`. Items ma
 | Lights | 3 W/m², 05–07 h (50 %) and 18–22 h |
 | Equipment | fridge + misc 60 W continuous, TV 70 W 18–22 h, LPG cooking 1 kW 07–08, 12–13 (50 %), 19–20 h |
 | Infiltration | 1.0 ACH **(assumed)**, leaky timber shutters |
-| Natural ventilation | Window opening area 50 % of window area. Open 06–22 h when T<sub>in</sub> > T<sub>out</sub> and T<sub>in</sub> > 22 °C; night ventilation (22–06 h) is a design variable. Toilet jalis are always open |
+| Natural ventilation | Window opening area 50 % of window area. Open 06–22 h when T<sub>in</sub> > T<sub>out</sub> and T<sub>in</sub> is above the day's IMAC-R 90 % lower limit (T<sub>n</sub> − 2.15 °C, i.e. about 23.5 °C in winter and 28.5 °C in summer), so occupants do not ventilate a room that already feels cool. Night ventilation (22–06 h) is a design variable. Toilet jalis are always open. (Model v1 used a fixed 22 °C threshold, which over-cooled the house in winter.) |
 | Ceiling fans (FAN mode) | 60 W per habitable room while occupied, 1 Mar–15 Nov; comfort credit +1.2 °C on the IMAC-R upper limit (ASHRAE 55 elevated air speed, 0.6 m/s) |
 | AC (AC mode) | Ideal-loads cooling, 26 °C set-point, SHR 0.7; bedroom 22–07 h, living room 13–17 h and 19–22 h, 1 Mar–15 Nov; windows closed while AC is available; COP 3.3 **(assumed)** |
 
