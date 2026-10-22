@@ -1,0 +1,27 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Third-party journal articles (copyrighted - keep local, cite by DOI)
+/1-s2.0-S0360132322004231-main.pdf
+/Comprehensive assessment of PCM integrated roof for passive building.pdf
+/Examination of thermal comfort in a hospital using PMV-PPD model.pdf
+/Exploring the potential of independent PCM-based free cooling in.pdf
+/PCM-based ceiling panels for passive cooling in buildings A CFD.pdf
+
+# EnergyPlus install (download with work/tools/get_energyplus.ps1)
+work/tools/EnergyPlus-*/
+work/tools/*.zip
+
+# Weather files (download with work/weather/get_weather.py; ISHRAE data is licensed)
+work/weather/*/
+
+# Simulation outputs (regenerate with the scripts; summary CSVs live in work/results)
+work/runs/
+
+# OS / editor
+Thumbs.db
+.DS_Store
+*.tmp
+~$*
