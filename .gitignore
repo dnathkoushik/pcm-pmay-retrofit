@@ -25,3 +25,6 @@ Thumbs.db
 .DS_Store
 *.tmp
 ~$*
+
+# Run logs
+work/results/*.log
